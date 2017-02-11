@@ -1,0 +1,15 @@
+{
+  "name": "bucket_upload",
+  "version": "2.0.2",
+  "description": "Script to upload files to AWS S3 Buckets",
+  "main": "upload.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.7.20",
+    "yargs": "^6.6.0"
+  }
+}
