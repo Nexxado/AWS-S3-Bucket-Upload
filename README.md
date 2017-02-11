@@ -4,6 +4,7 @@
 * Written in NodeJS using AWS SDK
 
 ## Table of contents
+
 * [Example Use Cases](#example-use-cases)
 * [Prerequisites](#prerequisites)
 * [Usage](#usage)
@@ -17,42 +18,50 @@
 ---
 
 ## Example Use Cases
+
 * Automatically update CDN with latest production files
 * Upload CI artifacts to S3 bucket.
 
 ## Prerequisites
+
 * Run `npm install` to install all dependencies
 
 ## Usage
+
 * `node upload.js <bucket name> <path to distribution files> [args]`
 * Can optionally set environment variables and pass command line arguments, see [Script Options](#script-options).
 * For help specify `--help` option, for example: `node upload.js --help`
 
 ## Files
+
 * `upload.js` - script file
-* `AwsConfig.json` - AWS Credential config 
+* `AwsConfig.json` - AWS Credential config
 
 ## Script Options
+
 * Environment Variables
     * `BUCKET_NAME` - Required (if not passed as argument), name of S3 bucket to upload files to.
     * `DIST_PATH` - Required (if not passed as argument) , path to the distribution file(s).
 * Command Line Options
     * `--folder <folder>` - name of the folder to put the files in, default is bucket root: `''`.
-    * `--acl <acl>` - ACL for the uploaded files, default: `private`, options: `private | public-read | public-read-write | authenticated-read | aws-exec-read | bucket-owner-read | bucket-owner-full-control`
+    * `--acl <acl>` - [ACL](http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl) for the uploaded files, default: `private`,
+    options: `"private" | "public-read" | "public-read-write" | "authenticated-read" | "aws-exec-read" | "bucket-owner-read" | "bucket-owner-full-control"`
     * `--empty` - specify if bucket should be emptied before upload, default: `false`.
     * `--config path/to/config` - used to overwrite path to default config file: `./AwsConfig.json`.
-    * `--datestamp` - Add current date to the bucket folder, format: yyyyMMdd, default: `true`.
+    * `--datestamp` - Add current date to the bucket folder, format: yyyyMMdd, default: `false`.
 
 ## Script Algorithm
+
 1. init `AWS-SDK`, loading credentials from `AwsConfig` file.
-2. If `--empty` option specified, Empty current contents of `BUCKET_FOLDER`
-3. Once done emptying `BUCKET_FOLDER`, start deployment of distribution files
-4. Read `DIST_PATH` directory recursively - reading all files in all sub-directories
-5. Upload all read files
-6. Once done, print deployment stats - how many files uploaded successfully\failed. 
+1. If `--empty` option specified, Empty current contents of `BUCKET_FOLDER`
+1. Once done emptying `BUCKET_FOLDER`, start uploading of distribution files
+1. Read `DIST_PATH` directory recursively - reading all files in all sub-directories
+1. Upload all read files, if a file is larger than 5MB it'll be uploaded using multi-part upload.
+1. Once done, print upload stats - how many files uploaded successfully\failed.
 
 ## AWS User Policy
-Required user policy to access and modify destination bucket  
+
+Required user policy to access and modify destination bucket
 User's `accessKeyId` and `secretAccessKey` must be written into `AwsConfig.json`.
 
 1. Goto AWS IAM -> Policies -> Create Policy -> Policy Generator
@@ -77,7 +86,8 @@ and object level actions gets their own statement with the bucket content (`BUCK
 
 * All uploaded files must have permissions to `open/download` for `Everyone`
 
-### Example Policy:
+### Example Policy
+
 ``` json
 {
     "Version": "2012-10-17",
@@ -109,6 +119,7 @@ and object level actions gets their own statement with the bucket content (`BUCK
 ```
 
 ## Config Example
+
 ``` json
 {
   "accessKeyId": "XXXXXXXXXXXXXXXXXXXXXX",
@@ -117,8 +128,10 @@ and object level actions gets their own statement with the bucket content (`BUCK
 ```
 
 ## S3 Bucket CORS Config
+
 If bucket is used as CDN, the browser will block some files that are served Cross Origin.
 Add the following CORS configuration to the S3 Bucket:
+
 ``` xml
 <?xml version="1.0" encoding="UTF-8"?>
 <CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">

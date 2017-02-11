@@ -30,7 +30,7 @@ var yargs = require('yargs')
             requiresArg: true
         },
         datestamp: {
-            default: true,
+            default: false,
             describe: 'Add current date to the bucket folder, format: yyyyMMdd',
             type: 'boolean',
             alias: 'date'
@@ -66,55 +66,85 @@ var numOfFiles = 0;
 var numOfUploaded = 0;
 var numOfFilesProcessed = 0;
 
-// Initialize AWS SDK
-AWS.config.loadFromPath(AWS_CONFIG);
-var s3 = new AWS.S3({
-    httpOptions: {
-        timeout: 300000 // 5 minutes in ms
-    }
-});
+// AWS S3
+var s3;
 
-// Update BUCKET_FOLDER according to datestamp option.
-if (shouldStampBucketFolder && BUCKET_FOLDER !== '')
-    BUCKET_FOLDER += generateDatestamp();
+prepareForUpload();
+startUploadProcess();
 
-// If path to distribution files is a directory and doesn't end with '/', add a '/'.
-if (DIST_PATH.slice(-1) !== '/' && fs.lstatSync(DIST_PATH).isDirectory())
-    DIST_PATH += '/';
-
-printScriptOptions();
-deploy();
+//========================
+//===== Init Methods =====
+//========================
 
 /**
- * Deploy production files
+ * Modify BUCKET_FOLDER according to options 
+ * Fix DIST_PATH if required
+ * Initialize AWS SDK
+ * Print script options
+ */
+function prepareForUpload() {
+    // Update BUCKET_FOLDER according to datestamp option.
+    if (shouldStampBucketFolder && BUCKET_FOLDER !== '')
+        BUCKET_FOLDER += generateDatestamp();
+
+    // If path to distribution files is a directory and doesn't end with '/', add a '/'.
+    if (DIST_PATH.slice(-1) !== '/' && fs.lstatSync(DIST_PATH).isDirectory())
+        DIST_PATH += '/';
+
+    initAwsSdk();
+    printScriptOptions();
+}
+
+/**
+ * Initialize AWS SDK
+ */
+function initAwsSdk() {
+
+    AWS.config.loadFromPath(AWS_CONFIG);
+    s3 = new AWS.S3({
+        httpOptions: {
+            timeout: 300000 // 5 minutes in ms
+        }
+    });
+}
+
+/**
+ * Print the script's options that will be used when running
+ */
+function printScriptOptions() {
+    console.log('\nRunning S3 Bucket Upload script');
+    console.log('\n*** Options ***');
+    console.log('BUCKET_NAME (required) = ', BUCKET_NAME);
+    console.log('DIST_PATH (required) =', DIST_PATH);
+    console.log('AWS_CONFIG =', AWS_CONFIG);
+    console.log('EMPTY_BUCKET =', shouldEmptyBucket);
+    console.log('BUCKET_FOLDER =', BUCKET_FOLDER);
+    console.log('BUCKET_ACL =', BUCKET_ACL);
+    console.log('DATESTAMP_FOLDER = ', shouldStampBucketFolder);
+}
+
+//==========================
+//===== Upload Methods =====
+//==========================
+
+/**
+ * Start Upload Process
  * 1. Empty bucket
  * 2. Once bucket is empty, upload files.
  */
-function deploy() {
-    console.log(generateTimestamp(), 'Starting deploy process. - bucket: ' + BUCKET_NAME);
+function startUploadProcess() {
+    console.log(generateTimestamp(), 'Starting upload process. - bucket: ' + BUCKET_NAME);
     if (shouldEmptyBucket)
-        emptyBucketFolder(uploadProductionFiles);
+        emptyBucketFolder(uploadFiles);
     else
-        uploadProductionFiles();
+        uploadFiles();
 }
 
 /**
- * Print deploy stats
+ * Upload files to bucket
  */
-function printStats() {
-    console.log('#Files: ' + numOfFiles + ', #Uploaded: ' + numOfUploaded + ', #Errors: ' + (numOfFiles - numOfUploaded));
-
-    console.log(generateTimestamp(), 'Finished uploading production files.');
-
-    if (numOfUploaded < numOfFiles)
-        process.exit(-1);
-}
-
-/**
- * Upload production files to bucket
- */
-function uploadProductionFiles() {
-    console.log(generateTimestamp(), 'Starting to upload production files.');
+function uploadFiles() {
+    console.log(generateTimestamp(), 'Starting to upload files.');
     var isDirectory = fs.lstatSync(DIST_PATH).isDirectory();
 
     if (isDirectory)
@@ -183,6 +213,7 @@ function deleteMultipleObjects(objects, callback) {
 function uploadMultiple(remoteFolderName, callback) {
     var fileList = getFileListRecursively(DIST_PATH, '');
 
+    // Add trailing backslash to remoteFolderName
     if (remoteFolderName !== '' && remoteFolderName.slice(-1) !== '/')
         remoteFolderName += '/';
 
@@ -222,16 +253,11 @@ function uploadFile(remoteFilename, fileName, callback) {
         ContentType: metaData
     }, function (error, response) {
         numOfFilesProcessed++;
-        process.stdout.write('.'); //Give sense of progress bar
 
-        if (error) {
+        if (error)
             console.log('Failed to upload ' + fileName, 'Error: ' + error);
-        }
-        else {
+        else
             numOfUploaded++;
-            // console.log('uploaded file[' + fileName + '] to [' + remoteFilename + '] as [' + metaData + ']');
-            // console.log(arguments);
-        }
 
         if (numOfFilesProcessed === numOfFiles) {
             process.stdout.write('\n');
@@ -264,13 +290,11 @@ function multiPartUpload(queueSize, remoteFilename, fileName, callback) {
         ContentType: metaData
     };
     var options = {
-        // params: params,
         queueSize: queueSize, // Queue size will be filesize split into chunks of 5 MB
         partSize: 1024 * 1024 * MULTI_PART_SIZE // Each part is 5 MB
     };
 
     s3.upload(params, options, function (error, data) {
-        // console.log('upload.send', err, data);
         numOfFilesProcessed++;
 
         if (error) {
@@ -284,34 +308,25 @@ function multiPartUpload(queueSize, remoteFilename, fileName, callback) {
             callback();
         }
     })
-        .on('httpUploadProgress', function (progress, response) {
-            console.log(generateTimestamp(), '##### File: ' + this.service.config.params.Key + ', Uploading Part: ' + Math.round((progress.loaded / 1024) / 1024) + ' MB - ' + Math.round((progress.loaded / progress.total) * 100) + ' %');
-        });
+    .on('httpUploadProgress', function (progress, response) {
+        console.log(generateTimestamp(), '##### File: ' + this.service.config.params.Key + ', Uploading Part: ' + Math.round((progress.loaded / 1024) / 1024) + ' MB - ' + Math.round((progress.loaded / progress.total) * 100) + ' %');
+    });
+}
 
-    // // Create upload object with settings.
-    // var upload = new AWS.S3.ManagedUpload(options);
-    // 
-    // // Define progress listener
-    // upload.on('httpUploadProgress', function (progress, response) {
-    //     console.log(generateTimestamp(), '##### File: ' + this.service.config.params.Key + ', Uploading Part: ' + Math.round((progress.loaded / 1024) / 1024) + ' MB - ' + Math.round((progress.loaded / progress.total) * 100) + ' %');
-    // });
-    // 
-    // // Initiate Upload.
-    // upload.send(function (error, data) {
-    // // console.log('upload.send', err, data);
-    // numOfFilesProcessed++;
-    // 
-    // if (error) {
-    //     console.log('Failed to upload ' + fileName, 'Error: ' + error);
-    // } else {
-    //     numOfUploaded++;
-    // }
-    // 
-    // if (numOfFilesProcessed === numOfFiles) {
-    //     process.stdout.write('\n');
-    //     callback();
-    // }
-    // });
+//==========================
+//===== Helper Methods =====
+//==========================
+
+/**
+ * Print upload stats
+ */
+function printStats() {
+    console.log('# Files: ' + numOfFiles + ', # Uploaded: ' + numOfUploaded + ', # Errors: ' + (numOfFiles - numOfUploaded));
+
+    console.log(generateTimestamp(), 'Finished uploading files.');
+
+    if (numOfUploaded < numOfFiles)
+        process.exit(-1);
 }
 
 /**
@@ -403,17 +418,3 @@ function generateDatestamp() {
     return '.' + year + month + day;
 }
 
-/**
- * Print the script's options that will be used when running
- */
-function printScriptOptions() {
-    console.log('\nRunning S3 Bucket Upload script');
-    console.log('\n*** Options ***');
-    console.log('BUCKET_NAME (required) = ', BUCKET_NAME);
-    console.log('DIST_PATH (required) =', DIST_PATH);
-    console.log('AWS_CONFIG =', AWS_CONFIG);
-    console.log('EMPTY_BUCKET =', shouldEmptyBucket);
-    console.log('BUCKET_FOLDER =', BUCKET_FOLDER);
-    console.log('BUCKET_ACL =', BUCKET_ACL);
-    console.log('DATESTAMP_FOLDER = ', shouldStampBucketFolder);
-}
